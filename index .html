@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>UrlaubPlaner Pro</title>
+    <link rel="manifest" href="manifest.json">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
+    <style>
+        body { background-color: #f8fafc; padding-bottom: 95px; font-family: sans-serif; }
+        .card-shadow { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); }
+        input, textarea { border-bottom: 2px solid #e2e8f0; transition: border-color 0.3s; background: transparent; }
+        input:focus, textarea:focus { border-color: #3b82f6; outline: none; }
+        .nav-btn.active { color: #2563eb; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <header class="bg-blue-600 text-white p-5 shadow-md sticky top-0 z-20 flex justify-between items-center">
+        <div>
+            <h1 class="text-xl font-extrabold tracking-tight">🌍 UrlaubsPlaner</h1>
+            <p id="total-badge" class="text-[10px] font-bold opacity-80 uppercase tracking-tighter">Berechne...</p>
+        </div>
+        <div class="text-3xl">🚗</div>
+    </header>
+
+    <main id="app-content" class="max-w-md mx-auto p-4"></main>
+
+    <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around p-3 shadow-2xl z-20">
+        <button onclick="showView('list')" id="nav-list" class="nav-btn flex flex-col items-center">
+            <span class="text-2xl">📋</span>
+            <span class="text-[10px] uppercase mt-1">Reisen</span>
+        </button>
+        <button onclick="showView('add')" id="nav-add" class="nav-btn flex flex-col items-center">
+            <span class="text-2xl">➕</span>
+            <span class="text-[10px] uppercase mt-1">Planen</span>
+        </button>
+        <button onclick="showView('settings')" id="nav-settings" class="nav-btn flex flex-col items-center">
+            <span class="text-2xl">⚙️</span>
+            <span class="text-[10px] uppercase mt-1">Backup</span>
+        </button>
+    </nav>
+
+    <script>
+        const db = new Dexie("UrlaubDB");
+        db.version(1).stores({ trips: '++id, ziel, startDatum' });
+        let editingId = null;
+
+        async function showView(view, id = null) {
+            const content = document.getElementById('app-content');
+            editingId = id;
+            document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById('nav-' + (view === 'add' ? 'add' : view)).classList.add('active');
+            updateTotalBadge();
+
+            if (view === 'list') {
+                const allTrips = await db.trips.reverse().toArray();
+                content.innerHTML = `<h2 class="text-gray-400 text-xs font-bold uppercase mb-4 tracking-widest">Deine Ziele</h2>`;
+                
+                allTrips.forEach(t => {
+                    const summe = (t.kostenZimmer || 0) + (t.kurtaxe || 0) + (t.essen || 0) + (t.kostenBenzin || 0) + (parseFloat(t.activcard) || 0);
+                    content.innerHTML += `
+                        <div class="bg-white rounded-2xl p-6 mb-6 card-shadow border border-gray-100">
+                            <div class="flex justify-between items-start mb-4">
+                                <div>
+                                    <h3 class="text-xl font-black text-gray-800 leading-tight">${t.ziel}</h3>
+                                    <p class="text-xs text-gray-500 font-bold uppercase tracking-tighter mt-1">📅 ${formatDate(t.startDatum)} - ${formatDate(t.endDatum)}</p>
+                                </div>
+                                <div class="text-green-600 font-black text-base">${summe.toFixed(2)} €</div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-x-4 gap-y-2 mb-4 bg-gray-50 p-4 rounded-xl text-[13px] text-gray-700">
+                                <div class="flex justify-between border-b border-gray-200 pb-1"><span>🏠 Zimmer:</span><b>${(t.kostenZimmer||0).toFixed(2)}€</b></div>
+                                <div class="flex justify-between border-b border-gray-200 pb-1"><span>⛽ Benzin:</span><b>${(t.kostenBenzin||0).toFixed(2)}€</b></div>
+                                <div class="flex justify-between border-b border-gray-200 pb-1 text-orange-800"><span>🍴 Essen:</span><b>${(t.essen||0).toFixed(2)}€</b></div>
+                                <div class="flex justify-between border-b border-gray-200 pb-1 text-blue-800"><span>🎟️ Kurtaxe:</span><b>${(t.kurtaxe||0).toFixed(2)}€</b></div>
+                                <div class="flex justify-between text-purple-800 col-span-2 mt-1 pt-1 border-t border-gray-200">
+                                    <span>💳 Activcard:</span><b>${(parseFloat(t.activcard)||0).toFixed(2)}€</b>
+                                </div>
+                            </div>
+
+                            <div class="text-base text-gray-700 space-y-3 mb-5">
+                                ${t.unternehmungen ? `<div class="flex gap-2"><span class="opacity-60">🥾</span><p class="italic leading-snug">${t.unternehmungen}</p></div>` : ''}
+                                ${t.notizen ? `<div class="flex gap-2"><span class="opacity-60">📝</span><p class="text-sm text-gray-600">${t.notizen}</p></div>` : ''}
+                            </div>
+                            <div class="flex gap-3">
+                                <button onclick="showView('add', ${t.id})" class="flex-1 bg-blue-50 text-blue-600 py-3 rounded-xl text-xs font-bold uppercase tracking-widest">Bearbeiten</button>
+                                <button onclick="deleteTrip(${t.id})" class="px-5 bg-red-50 text-red-400 py-3 rounded-xl text-xs font-bold uppercase tracking-widest">Löschen</button>
+                            </div>
+                        </div>`;
+                });
+            } else if (view === 'add') {
+                let d = { ziel: '', startDatum: '', endDatum: '', kostenZimmer: '', kurtaxe: '', essen: '', kostenBenzin: '', activcard: '', unternehmungen: '', notizen: '' };
+                if (id) d = await db.trips.get(id);
+                content.innerHTML = `
+                    <h2 class="text-gray-400 text-xs font-bold uppercase mb-4 tracking-widest">${id ? 'Anpassen' : 'Neue Reise'}</h2>
+                    <form id="tripForm" class="space-y-4">
+                        <div class="bg-white p-5 rounded-2xl card-shadow space-y-4">
+                            <input type="text" id="ziel" value="${d.ziel}" placeholder="Reiseziel" class="w-full p-2 font-bold text-lg" required>
+                            <div class="grid grid-cols-2 gap-4">
+                                <input type="date" id="startDatum" value="${d.startDatum}" class="w-full p-2 text-sm">
+                                <input type="date" id="endDatum" value="${d.endDatum}" class="w-full p-2 text-sm">
+                            </div>
+                        </div>
+                        <div class="bg-white p-5 rounded-2xl card-shadow grid grid-cols-2 gap-4">
+                            <input type="number" step="0.01" id="kostenZimmer" value="${d.kostenZimmer}" placeholder="Zimmer €" class="p-2 text-sm" inputmode="decimal">
+                            <input type="number" step="0.01" id="kurtaxe" value="${d.kurtaxe}" placeholder="Kurtaxe €" class="p-2 text-sm" inputmode="decimal">
+                            <input type="number" step="0.01" id="essen" value="${d.essen}" placeholder="Essen €" class="p-2 text-sm" inputmode="decimal">
+                            <input type="number" step="0.01" id="benzin" value="${d.kostenBenzin}" placeholder="Benzin €" class="p-2 text-sm" inputmode="decimal">
+                            <input type="number" step="0.01" id="activcard" value="${d.activcard}" placeholder="Activcard €" class="p-2 text-sm col-span-2" inputmode="decimal">
+                        </div>
+                        <div class="bg-white p-5 rounded-2xl card-shadow space-y-4">
+                            <textarea id="unternehmungen" placeholder="Wandern / Unternehmungen" class="w-full p-2 text-sm h-24">${d.unternehmungen}</textarea>
+                            <textarea id="notizen" placeholder="Notizen" class="w-full p-2 text-sm h-20">${d.notizen}</textarea>
+                        </div>
+                        <button type="submit" class="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold uppercase tracking-widest shadow-lg">Speichern</button>
+                    </form>`;
+                document.getElementById('tripForm').onsubmit = saveTrip;
+            } else if (view === 'settings') {
+                content.innerHTML = `<h2 class="text-gray-400 text-xs font-bold uppercase mb-4 tracking-widest">Optionen</h2>
+                <div class="bg-white p-6 rounded-2xl card-shadow space-y-4">
+                    <button onclick="exportData()" class="w-full bg-green-500 text-white py-3 rounded-xl font-bold uppercase text-xs">Backup Download</button>
+                    <input type="file" id="importFile" accept=".json" class="hidden" onchange="importData(this)">
+                    <label for="importFile" class="cursor-pointer inline-block w-full bg-blue-600 text-white py-3 rounded-xl font-bold uppercase text-xs text-center">Backup laden</label>
+                </div>`;
+            }
+        }
+
+        async function saveTrip(e) {
+            e.preventDefault();
+            const trip = {
+                ziel: document.getElementById('ziel').value,
+                startDatum: document.getElementById('startDatum').value,
+                endDatum: document.getElementById('endDatum').value,
+                kostenZimmer: parseFloat(document.getElementById('kostenZimmer').value) || 0,
+                kurtaxe: parseFloat(document.getElementById('kurtaxe').value) || 0,
+                essen: parseFloat(document.getElementById('essen').value) || 0,
+                kostenBenzin: parseFloat(document.getElementById('benzin').value) || 0,
+                activcard: parseFloat(document.getElementById('activcard').value) || 0,
+                unternehmungen: document.getElementById('unternehmungen').value,
+                notizen: document.getElementById('notizen').value
+            };
+            if (editingId) await db.trips.update(editingId, trip);
+            else await db.trips.add(trip);
+            showView('list');
+        }
+
+        async function updateTotalBadge() {
+            const all = await db.trips.toArray();
+            const total = all.reduce((acc, t) => acc + (t.kostenZimmer || 0) + (t.kurtaxe || 0) + (t.essen || 0) + (t.kostenBenzin || 0) + (parseFloat(t.activcard) || 0), 0);
+            document.getElementById('total-badge').innerText = `Gesamtbudget: ${total.toFixed(2)} €`;
+        }
+
+        async function deleteTrip(id) { if(confirm('Löschen?')) { await db.trips.delete(id); showView('list'); } }
+        async function exportData() {
+            const all = await db.trips.toArray();
+            const blob = new Blob([JSON.stringify(all, null, 2)], {type: "application/json"});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = `backup_urlaub.json`; a.click();
+        }
+        function importData(input) {
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                const data = JSON.parse(e.target.result);
+                for (const item of data) { delete item.id; await db.trips.add(item); }
+                showView('list');
+            };
+            reader.readAsText(input.files[0]);
+        }
+        function formatDate(d) { return d ? d.split('-').reverse().join('.') : '??.??.??'; }
+
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.register('sw.js').catch(err => console.log(err));
+        }
+
+        showView('list');
+    </script>
+</body>
+</html>
