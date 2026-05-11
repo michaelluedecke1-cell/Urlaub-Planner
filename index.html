@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>UrlaubPlaner Pro</title>
     <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#2563eb">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
     <style>
@@ -50,14 +51,22 @@
         async function showView(view, id = null) {
             const content = document.getElementById('app-content');
             editingId = id;
+            
+            // UI Navigation Update
             document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
-            document.getElementById('nav-' + (view === 'add' ? 'add' : view)).classList.add('active');
+            const activeNav = document.getElementById('nav-' + (view === 'add' ? 'add' : view === 'settings' ? 'settings' : 'list'));
+            if(activeNav) activeNav.classList.add('active');
+            
             updateTotalBadge();
 
             if (view === 'list') {
                 const allTrips = await db.trips.reverse().toArray();
                 content.innerHTML = `<h2 class="text-gray-400 text-xs font-bold uppercase mb-4 tracking-widest">Deine Ziele</h2>`;
                 
+                if(allTrips.length === 0) {
+                    content.innerHTML += `<p class="text-center text-gray-400 mt-10">Noch keine Reisen geplant.</p>`;
+                }
+
                 allTrips.forEach(t => {
                     const summe = (t.kostenZimmer || 0) + (t.kurtaxe || 0) + (t.essen || 0) + (t.kostenBenzin || 0) + (parseFloat(t.activcard) || 0);
                     content.innerHTML += `
@@ -69,7 +78,6 @@
                                 </div>
                                 <div class="text-green-600 font-black text-base">${summe.toFixed(2)} €</div>
                             </div>
-
                             <div class="grid grid-cols-2 gap-x-4 gap-y-2 mb-4 bg-gray-50 p-4 rounded-xl text-[13px] text-gray-700">
                                 <div class="flex justify-between border-b border-gray-200 pb-1"><span>🏠 Zimmer:</span><b>${(t.kostenZimmer||0).toFixed(2)}€</b></div>
                                 <div class="flex justify-between border-b border-gray-200 pb-1"><span>⛽ Benzin:</span><b>${(t.kostenBenzin||0).toFixed(2)}€</b></div>
@@ -79,7 +87,6 @@
                                     <span>💳 Activcard:</span><b>${(parseFloat(t.activcard)||0).toFixed(2)}€</b>
                                 </div>
                             </div>
-
                             <div class="text-base text-gray-700 space-y-3 mb-5">
                                 ${t.unternehmungen ? `<div class="flex gap-2"><span class="opacity-60">🥾</span><p class="italic leading-snug">${t.unternehmungen}</p></div>` : ''}
                                 ${t.notizen ? `<div class="flex gap-2"><span class="opacity-60">📝</span><p class="text-sm text-gray-600">${t.notizen}</p></div>` : ''}
@@ -152,26 +159,37 @@
             document.getElementById('total-badge').innerText = `Gesamtbudget: ${total.toFixed(2)} €`;
         }
 
-        async function deleteTrip(id) { if(confirm('Löschen?')) { await db.trips.delete(id); showView('list'); } }
+        async function deleteTrip(id) { if(confirm('Reise wirklich löschen?')) { await db.trips.delete(id); showView('list'); } }
+        
         async function exportData() {
             const all = await db.trips.toArray();
             const blob = new Blob([JSON.stringify(all, null, 2)], {type: "application/json"});
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a'); a.href = url; a.download = `backup_urlaub.json`; a.click();
         }
+
         function importData(input) {
             const reader = new FileReader();
             reader.onload = async (e) => {
-                const data = JSON.parse(e.target.result);
-                for (const item of data) { delete item.id; await db.trips.add(item); }
-                showView('list');
+                try {
+                    const data = JSON.parse(e.target.result);
+                    for (const item of data) { delete item.id; await db.trips.add(item); }
+                    showView('list');
+                    alert('Import erfolgreich!');
+                } catch(err) { alert('Fehler beim Importieren!'); }
             };
             reader.readAsText(input.files[0]);
         }
+
         function formatDate(d) { return d ? d.split('-').reverse().join('.') : '??.??.??'; }
 
+        // Service Worker Registration
         if ('serviceWorker' in navigator) {
-          navigator.serviceWorker.register('sw.js').catch(err => console.log(err));
+          window.addEventListener('load', () => {
+            navigator.serviceWorker.register('sw.js').then(reg => {
+              console.log('SW registriert!', reg);
+            }).catch(err => console.log('SW Fehler:', err));
+          });
         }
 
         showView('list');
